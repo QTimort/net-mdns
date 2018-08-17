@@ -11,7 +11,8 @@ namespace Makaretu.Dns
     /// <seealso cref="ServiceDiscovery.Advertise(ServiceProfile)"/>
     public class ServiceProfile
     {
-        private const String DefaultDomain = "local";
+        private const string DefaultDomain = "local";
+        private const short DefaultTTL = 60;
         /// <summary>
         ///   The domain name of the service.
         /// </summary>
@@ -81,6 +82,9 @@ namespace Makaretu.Dns
         ///   </para>
         /// </remarks>
         public List<ResourceRecord> Resources { get; set; } = new List<ResourceRecord>();
+
+        public PTRRecord servicePtrRecord { get; }
+        public PTRRecord instancePtrRecord { get; }
         
         // Enforce multicast defaults, especially TTL.
         static ServiceProfile()
@@ -95,7 +99,7 @@ namespace Makaretu.Dns
         /// <remarks>
         ///   All details must be filled in by the caller, especially the <see cref="Resources"/>.
         /// </remarks>
-        public ServiceProfile()
+        private ServiceProfile()
         {
         }
 
@@ -120,13 +124,12 @@ namespace Makaretu.Dns
         ///   The SRV, TXT and A/AAAA resoruce records are added to the <see cref="Resources"/>.
         /// </remarks>
         public ServiceProfile(string instanceName, string serviceName, ushort port, IEnumerable<IPAddress> addresses = null) :
-            this(instanceName, serviceName, DefaultDomain, port, addresses)
+            this(instanceName, serviceName, DefaultDomain, port, DefaultTTL, addresses)
         {
             
         }
 
-            
-        public ServiceProfile(string instanceName, string serviceName, string domainName, ushort port, IEnumerable<IPAddress> addresses = null)
+        public ServiceProfile(string instanceName, string serviceName, string domainName, ushort port, short ttl, IEnumerable<IPAddress> addresses = null)
         {
             InstanceName = instanceName;
             ServiceName = serviceName;
@@ -154,6 +157,15 @@ namespace Makaretu.Dns
             {
                 Resources.Add(AddressRecord.Create(HostName, address));
             }
+            
+            servicePtrRecord = new PTRRecord { Name = ServiceName, DomainName = QualifiedServiceName, TTL = TimeSpan.FromSeconds(ttl)};
+            instancePtrRecord = new PTRRecord { Name = QualifiedServiceName, DomainName = FullyQualifiedName, TTL = TimeSpan.FromSeconds(ttl)};
+        }
+
+        public void setTTl(short ttl)
+        {
+            servicePtrRecord.TTL = TimeSpan.FromSeconds(ttl);
+            instancePtrRecord.TTL = TimeSpan.FromSeconds(ttl);
         }
 
         /// <summary>

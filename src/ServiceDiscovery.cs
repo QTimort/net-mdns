@@ -110,12 +110,8 @@ namespace Makaretu.Dns
             profiles.Add(service);
 
             var catalog = NameServer.Catalog;
-            catalog.Add(
-                new PTRRecord { Name = ServiceName, DomainName = service.QualifiedServiceName },
-                authoritative: true);
-            catalog.Add(
-                new PTRRecord { Name = service.QualifiedServiceName, DomainName = service.FullyQualifiedName },
-                authoritative: true);
+            catalog.Add(service.instancePtrRecord, authoritative: true);
+            catalog.Add(service.servicePtrRecord, authoritative: true);
 
             foreach (var r in service.Resources)
             {
