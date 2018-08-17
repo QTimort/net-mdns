@@ -25,28 +25,51 @@ namespace Makaretu.Dns
     /// </remarks>
     public class MulticastService : IResolver, IDisposable
     {
-        static readonly ILog log = LogManager.GetLogger(typeof(MulticastService));
-        static readonly IPAddress MulticastAddressIp4 = IPAddress.Parse("224.0.0.251");
-        static readonly IPAddress MulticastAddressIp6 = IPAddress.Parse("FF02::FB");
-        static readonly IPNetwork[] linkLocalNetworks = new IPNetwork[]
+        private const int MulticastPort = 5353;
+        // IP header (20 bytes for IPv4; 40 bytes for IPv6) and the UDP header(8 bytes).
+        private const int PacketOverhead = 48;
+        private const int MaxDatagramSize = Message.MaxLength;
+        
+        private static readonly ILog Log = LogManager.GetLogger(typeof(MulticastService));
+        private static readonly IPAddress MulticastAddressIp4 = IPAddress.Parse("224.0.0.251");
+        private static readonly IPAddress MulticastAddressIp6 = IPAddress.Parse("FF02::FB");
+        private static readonly IPNetwork[] LinkLocalNetworks = new IPNetwork[]
         {
             IPNetwork.Parse("169.254.0.0/16"),
             IPNetwork.Parse("fe80::/10")
         };
+        
+        private readonly Object senderLock = new object();
+        private readonly bool ip6;
 
-        const int MulticastPort = 5353;
-        // IP header (20 bytes for IPv4; 40 bytes for IPv6) and the UDP header(8 bytes).
-        const int packetOverhead = 48;
-        const int maxDatagramSize = Message.MaxLength;
+        private CancellationTokenSource serviceCancellation;
+        private CancellationTokenSource listenerCancellation;
+        
+        private List<NetworkInterface> knownNics = new List<NetworkInterface>();
+        private IPEndPoint mdnsEndpoint;
+        private int maxPacketSize;
 
-        CancellationTokenSource serviceCancellation;
-        CancellationTokenSource listenerCancellation;
-
-        List<NetworkInterface> knownNics = new List<NetworkInterface>();
-        readonly bool ip6;
-        IPEndPoint mdnsEndpoint;
-        int maxPacketSize;
-
+        /// <summary>
+        ///   The multicast sender.
+        /// </summary>
+        /// <remarks>
+        ///   Always use socketLock to gain access.
+        /// </remarks>
+        private UdpClient sender;
+        
+        /// <summary>
+        ///   The interval for discovering network interfaces.
+        /// </summary>
+        /// <value>
+        ///   Default is 2 minutes.
+        /// </value>
+        /// <remarks>
+        ///   When the interval is reached a task is started to discover any
+        ///   new network interfaces. 
+        /// </remarks>
+        /// <seealso cref="NetworkInterfaceDiscovered"/>
+        public TimeSpan NetworkInterfaceDiscoveryInterval { get; set; } = TimeSpan.FromMinutes(2);
+        
         /// <summary>
         ///   Set the default TTLs.
         /// </summary>
@@ -58,15 +81,6 @@ namespace Makaretu.Dns
             ResourceRecord.DefaultTTL = TimeSpan.FromMinutes(75);
             ResourceRecord.DefaultHostTTL = TimeSpan.FromSeconds(120);
         }
-
-        /// <summary>
-        ///   The multicast sender.
-        /// </summary>
-        /// <remarks>
-        ///   Always use socketLock to gain access.
-        /// </remarks>
-        UdpClient sender;
-        readonly Object senderLock = new object();
 
         /// <summary>
         ///   Raised when any local MDNS service sends a query.
@@ -110,19 +124,6 @@ namespace Makaretu.Dns
                 ip6 ? MulticastAddressIp6 : MulticastAddressIp4, 
                 MulticastPort);
         }
-
-        /// <summary>
-        ///   The interval for discovering network interfaces.
-        /// </summary>
-        /// <value>
-        ///   Default is 2 minutes.
-        /// </value>
-        /// <remarks>
-        ///   When the interval is reached a task is started to discover any
-        ///   new network interfaces. 
-        /// </remarks>
-        /// <seealso cref="NetworkInterfaceDiscovered"/>
-        public TimeSpan NetworkInterfaceDiscoveryInterval { get; set; } = TimeSpan.FromMinutes(2);
 
         /// <summary>
         ///   Get the network interfaces that are useable.
@@ -180,7 +181,7 @@ namespace Makaretu.Dns
         public void Start()
         {
             serviceCancellation = new CancellationTokenSource();
-            maxPacketSize = maxDatagramSize - packetOverhead;
+            maxPacketSize = MaxDatagramSize - PacketOverhead;
             knownNics.Clear();
 
             // Start a task to find the network interfaces.
@@ -236,7 +237,7 @@ namespace Makaretu.Dns
             }
             catch (Exception e)
             {
-                log.Error(e);
+                Log.Error(e);
                 // eat it.
             }
         }
@@ -252,17 +253,17 @@ namespace Makaretu.Dns
                 foreach (var nic in knownNics.Where(k => !currentNics.Any(n => k.Id == n.Id)))
                 {
                     oldNics.Add(nic);
-                    if (log.IsDebugEnabled)
+                    if (Log.IsDebugEnabled)
                     {
-                        log.Debug($"Removed nic '{nic.Name}'.");
+                        Log.Debug($"Removed nic '{nic.Name}'.");
                     }
                 }
                 foreach (var nic in currentNics.Where(nic => !knownNics.Any(k => k.Id == nic.Id)))
                 {
                     newNics.Add(nic);
-                    if (log.IsDebugEnabled)
+                    if (Log.IsDebugEnabled)
                     {
-                        log.Debug($"Found nic '{nic.Name}'.");
+                        Log.Debug($"Found nic '{nic.Name}'.");
                     }
                 }
             }
@@ -462,7 +463,7 @@ namespace Makaretu.Dns
             }
             catch (Exception e)
             {
-                log.Warn("Received malformed message", e);
+                Log.Warn("Received malformed message", e);
                 return; // eat the exception
             }
             if (msg.Opcode != MessageOperation.Query || msg.Status != MessageStatus.NoError)
@@ -484,7 +485,7 @@ namespace Makaretu.Dns
             }
             catch (Exception e)
             {
-                log.Error("Receive handler failed", e);
+                Log.Error("Receive handler failed", e);
                 // eat the exception
             }
         }
@@ -537,7 +538,7 @@ namespace Makaretu.Dns
             catch (Exception e)
             {
                 if (!cancel.IsCancellationRequested)
-                    log.Error("Listener failed", e);
+                    Log.Error("Listener failed", e);
                 // eat the exception
             }
 

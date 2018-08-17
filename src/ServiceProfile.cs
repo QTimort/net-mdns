@@ -2,8 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
-using System.Net.Sockets;
-using System.Text;
 
 namespace Makaretu.Dns
 {
@@ -13,79 +11,14 @@ namespace Makaretu.Dns
     /// <seealso cref="ServiceDiscovery.Advertise(ServiceProfile)"/>
     public class ServiceProfile
     {
-        // Enforce multicast defaults, especially TTL.
-        static ServiceProfile()
-        {
-            // Make sure MulticastService is inited.
-            MulticastService.ReferenceEquals(null, null);
-        }
-
-        /// <summary>
-        ///   Creates a new instance of the <see cref="ServiceProfile"/> class.
-        /// </summary>
-        /// <remarks>
-        ///   All details must be filled in by the caller, especially the <see cref="Resources"/>.
-        /// </remarks>
-        public ServiceProfile()
-        {
-        }
-
-        /// <summary>
-        ///   Creates a new instance of the <see cref="ServiceProfile"/> class
-        ///   with the specified details.
-        /// </summary>
-        /// <param name="instanceName">
-        ///    A unique identifier for the specific service instance.
-        /// </param>
-        /// <param name="serviceName">
-        ///   The <see cref="ServiceName">name</see> of the service.
-        /// </param>
-        /// <param name="port">
-        ///   The TCP/UDP port of the service.
-        /// </param>
-        /// <param name="addresses">
-        ///   The IP addresses of the specific service instance. If <b>null</b> then
-        ///   <see cref="MulticastService.GetIPAddresses"/> is used.
-        /// </param>
-        /// <remarks>
-        ///   The SRV, TXT and A/AAAA resoruce records are added to the <see cref="Resources"/>.
-        /// </remarks>
-        public ServiceProfile(string instanceName, string serviceName, ushort port, IEnumerable<IPAddress> addresses = null)
-        {
-            InstanceName = instanceName;
-            ServiceName = serviceName;
-            var fqn = FullyQualifiedName;
-
-            var simpleServiceName = ServiceName
-                .Replace("._tcp", "")
-                .Replace("._udp", "")
-                .TrimStart('_');
-            HostName = $"{InstanceName}.{simpleServiceName}.{Domain}";
-            Resources.Add(new SRVRecord
-            {
-                Name = fqn,
-                Port = port,
-                Target = HostName
-            });
-            Resources.Add(new TXTRecord
-            {
-                Name = fqn,
-                Strings = { "txtvers=1" }
-            });
-
-            foreach (var address in addresses ?? MulticastService.GetLinkLocalAddresses())
-            {
-                Resources.Add(AddressRecord.Create(HostName, address));
-            }
-        }
-
+        private const String DefaultDomain = "local";
         /// <summary>
         ///   The domain name of the service.
         /// </summary>
         /// <value>
         ///   Defaults to "local".
         /// </value>
-        public string Domain { get; } = "local";
+        public string Domain { get; }
 
         /// <summary>
         ///   A unique name for the service.
@@ -148,6 +81,80 @@ namespace Makaretu.Dns
         ///   </para>
         /// </remarks>
         public List<ResourceRecord> Resources { get; set; } = new List<ResourceRecord>();
+        
+        // Enforce multicast defaults, especially TTL.
+        static ServiceProfile()
+        {
+            // Make sure MulticastService is inited.
+            MulticastService.ReferenceEquals(null, null);
+        }
+
+        /// <summary>
+        ///   Creates a new instance of the <see cref="ServiceProfile"/> class.
+        /// </summary>
+        /// <remarks>
+        ///   All details must be filled in by the caller, especially the <see cref="Resources"/>.
+        /// </remarks>
+        public ServiceProfile()
+        {
+        }
+
+        /// <summary>
+        ///   Creates a new instance of the <see cref="ServiceProfile"/> class
+        ///   with the specified details.
+        /// </summary>
+        /// <param name="instanceName">
+        ///    A unique identifier for the specific service instance.
+        /// </param>
+        /// <param name="serviceName">
+        ///   The <see cref="ServiceName">name</see> of the service.
+        /// </param>
+        /// <param name="port">
+        ///   The TCP/UDP port of the service.
+        /// </param>
+        /// <param name="addresses">
+        ///   The IP addresses of the specific service instance. If <b>null</b> then
+        ///   <see cref="MulticastService.GetIPAddresses"/> is used.
+        /// </param>
+        /// <remarks>
+        ///   The SRV, TXT and A/AAAA resoruce records are added to the <see cref="Resources"/>.
+        /// </remarks>
+        public ServiceProfile(string instanceName, string serviceName, ushort port, IEnumerable<IPAddress> addresses = null) :
+            this(instanceName, serviceName, DefaultDomain, port, addresses)
+        {
+            
+        }
+
+            
+        public ServiceProfile(string instanceName, string serviceName, string domainName, ushort port, IEnumerable<IPAddress> addresses = null)
+        {
+            InstanceName = instanceName;
+            ServiceName = serviceName;
+            Domain = domainName;
+            var fqn = FullyQualifiedName;
+
+            var simpleServiceName = ServiceName
+                .Replace("._tcp", "")
+                .Replace("._udp", "")
+                .TrimStart('_');
+            HostName = $"{InstanceName}.{simpleServiceName}.{Domain}";
+            Resources.Add(new SRVRecord
+            {
+                Name = fqn,
+                Port = port,
+                Target = HostName
+            });
+            Resources.Add(new TXTRecord
+            {
+                Name = fqn,
+                Strings = { "txtvers=1" }
+            });
+
+            foreach (var address in addresses ?? MulticastService.GetLinkLocalAddresses())
+            {
+                Resources.Add(AddressRecord.Create(HostName, address));
+            }
+        }
 
         /// <summary>
         ///   Add a property of the service to the TXT record.

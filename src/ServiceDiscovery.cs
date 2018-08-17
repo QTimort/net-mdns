@@ -3,7 +3,6 @@ using Makaretu.Dns.Resolving;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
 
 namespace Makaretu.Dns
 {
@@ -14,8 +13,6 @@ namespace Makaretu.Dns
     /// <seealso href="https://tools.ietf.org/html/rfc6763">RFC 6763 DNS-Based Service Discovery</seealso>
     public class ServiceDiscovery : IDisposable
     {
-        static readonly ILog log = LogManager.GetLogger(typeof(ServiceDiscovery));
-
         /// <summary>
         ///   The service discovery service name.
         /// </summary>
@@ -23,9 +20,29 @@ namespace Makaretu.Dns
         ///   The service name used to enumerate other services.
         /// </value>
         public const string ServiceName = "_services._dns-sd._udp.local";
-        readonly bool ownsMdns;
-        List<ServiceProfile> profiles = new List<ServiceProfile>();
+        
+        private static readonly ILog Log = LogManager.GetLogger(typeof(ServiceDiscovery));
+        
+        private readonly bool ownsMdns;
+        
+        private List<ServiceProfile> profiles = new List<ServiceProfile>();
 
+        /// <summary>
+        ///   Gets the multicasting service.
+        /// </summary>
+        public MulticastService Mdns { get; private set; }
+
+        /// <summary>
+        ///   Gets the name server.
+        /// </summary>
+        /// <value>
+        ///   Is used to answer questions.
+        /// </value>
+        public NameServer NameServer { get; } = new NameServer {
+            Catalog = new Catalog(),
+            AnswerAllQuestions = true
+        };
+        
         /// <summary>
         ///   Creates a new instance of the <see cref="ServiceDiscovery"/> class.
         /// </summary>
@@ -51,22 +68,6 @@ namespace Makaretu.Dns
             mdns.QueryReceived += OnQuery;
             mdns.AnswerReceived += OnAnswer;
         }
-
-        /// <summary>
-        ///   Gets the multicasting service.
-        /// </summary>
-        public MulticastService Mdns { get; private set; }
-
-        /// <summary>
-        ///   Gets the name server.
-        /// </summary>
-        /// <value>
-        ///   Is used to answer questions.
-        /// </value>
-        public NameServer NameServer { get; } = new NameServer {
-            Catalog = new Catalog(),
-            AnswerAllQuestions = true
-        };
 
         /// <summary>
         ///   Raised when a DNS-SD response is received.
@@ -140,8 +141,8 @@ namespace Makaretu.Dns
         {
             var request = e.Message;
 
-            if (log.IsDebugEnabled)
-                log.Debug($"got query for {request.Questions[0].Name} {request.Questions[0].Type}");
+            if (Log.IsDebugEnabled)
+                Log.Debug($"got query for {request.Questions[0].Name} {request.Questions[0].Type}");
             var response = NameServer.ResolveAsync(request).Result;
             if (response.Status == MessageStatus.NoError)
             {
@@ -153,8 +154,8 @@ namespace Makaretu.Dns
                 }
 
                 Mdns.SendAnswer(response);
-                if (log.IsDebugEnabled)
-                    log.Debug($"sent answer {response.Answers[0]}");
+                if (Log.IsDebugEnabled)
+                    Log.Debug($"sent answer {response.Answers[0]}");
                 //Console.WriteLine($"Response time {(DateTime.Now - request.CreationTime).TotalMilliseconds}ms");
             }
         }
